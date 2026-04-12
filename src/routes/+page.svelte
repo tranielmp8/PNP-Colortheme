@@ -99,7 +99,7 @@
 <div class="page-shell">
 	<section class="hero">
 		<div class="hero-copy">
-			<p class="eyebrow">SvelteKit Color Theme Template</p>
+			<p class="eyebrow">Pride N Purpose ColorTheme Creator</p>
 			<h1>Build a five-color palette by dragging, typing, and comparing live.</h1>
 			<p class="intro">
 				Each column includes a native color picker for the VS Code-style selector behavior, a live
