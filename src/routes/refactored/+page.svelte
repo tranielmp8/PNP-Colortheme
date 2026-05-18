@@ -22,7 +22,7 @@
 	const themeSlug = $derived(slugifyThemeName(themeName));
 	const themeGradient = $derived(buildThemeGradient(palette));
 	const cssVariables = $derived(buildCssVariables(themeSlug, palette));
-	const paletteJson = $derived(buildPaletteJson(themeName, palette));
+	const paletteJson = $derived(buildPaletteJson(themeName, themeSlug, palette));
 
 	function handleHexChange(id: number, value: string) {
 		palette = updatePaletteColor(palette, id, value);

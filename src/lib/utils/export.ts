@@ -11,9 +11,10 @@ export function buildCssVariables(themeSlug: string, palette: PaletteColor[]): s
 	return `:root {\n${lines.join('\n')}\n}`;
 }
 
-export function buildPaletteJson(themeName: string, palette: PaletteColor[]): string {
+export function buildPaletteJson(themeName: string, themeSlug: string, palette: PaletteColor[]): string {
 	const payload: PaletteJsonExport = {
 		name: themeName.trim() || 'Untitled Theme',
+		slug: themeSlug,
 		colors: palette.map((color) => ({
 			slot: color.name,
 			hex: color.hex
@@ -21,4 +22,9 @@ export function buildPaletteJson(themeName: string, palette: PaletteColor[]): st
 	};
 
 	return JSON.stringify(payload, null, 2);
+}
+
+export function buildThemeFilename(themeSlug: string, version = 1): string {
+	const versionSuffix = version > 1 ? `-v${version}` : '';
+	return `${themeSlug || 'color-theme'}${versionSuffix}.json`;
 }

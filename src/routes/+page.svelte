@@ -1,8 +1,20 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { buildThemeFilename } from '$lib/utils/export';
+
 	type PaletteColumn = {
 		id: number;
 		name: string;
 		hex: string;
+	};
+
+	type SaveThemeResponse = {
+		id: string;
+		name: string;
+		slug: string;
+		exportFilename: string;
+		version: number;
+		colors: PaletteColumn[];
 	};
 
 	const initialPalette = ['#f94144', '#f8961e', '#f9c74f', '#90be6d', '#577590'];
@@ -14,6 +26,11 @@
 	})));
 	let themeName = $state('Northern Current');
 	let copiedKey = $state<string | null>(null);
+	let saveStatus = $state('Unsaved');
+	let isSaving = $state(false);
+	let exportFilename = $state('');
+	let selectedThemeId = $state('');
+	let savedThemes = $state<SaveThemeResponse[]>([]);
 
 	const hexPattern = /^#?[0-9a-fA-F]{6}$/;
 
@@ -37,13 +54,42 @@
 		);
 	}
 
+	function createRandomHex() {
+		return `#${Math.floor(Math.random() * 0xffffff)
+			.toString(16)
+			.padStart(6, '0')
+			.toUpperCase()}`;
+	}
+
+	function randomizeColor(id: number) {
+		palette = palette.map((column) =>
+			column.id === id ? { ...column, hex: createRandomHex() } : column
+		);
+		saveStatus = selectedThemeId ? 'Unsaved changes' : 'Unsaved';
+	}
+
+	function randomizePalette() {
+		palette = palette.map((column) => ({
+			...column,
+			hex: createRandomHex()
+		}));
+		saveStatus = selectedThemeId ? 'Unsaved changes' : 'Unsaved';
+	}
+
 	function resetPalette() {
 		palette = initialPalette.map((hex, index) => ({
 			id: index + 1,
 			name: `Color ${index + 1}`,
 			hex: hex.toUpperCase()
 		}));
+		selectedThemeId = '';
+		saveStatus = 'Unsaved';
+		exportFilename = '';
 	}
+
+	onMount(() => {
+		loadSavedThemes();
+	});
 
 	async function copyText(key: string, value: string) {
 		if (typeof navigator === 'undefined' || !navigator.clipboard) {
@@ -60,12 +106,97 @@
 		}, 1800);
 	}
 
+	function downloadPaletteJson(filename = buildThemeFilename(themeSlug)) {
+		const blob = new Blob([paletteJson], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+
+		anchor.href = url;
+		anchor.download = filename;
+		anchor.click();
+		URL.revokeObjectURL(url);
+	}
+
+	async function saveTheme() {
+		isSaving = true;
+		saveStatus = 'Saving...';
+		const wasUpdating = Boolean(selectedThemeId);
+
+		try {
+			const response = await fetch(selectedThemeId ? `/api/themes/${selectedThemeId}` : '/api/themes', {
+				method: selectedThemeId ? 'PUT' : 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({
+					name: themeName.trim() || 'Untitled Theme',
+					slug: themeSlug,
+					colors: palette,
+					cssVariables,
+					jsonExport: JSON.parse(paletteJson)
+				})
+			});
+
+			const result = (await response.json()) as Partial<SaveThemeResponse> & { message?: string };
+
+			if (!response.ok) {
+				throw new Error(result.message ?? 'Unable to save color theme.');
+			}
+
+			if (result.id) {
+				selectedThemeId = result.id;
+			}
+
+			exportFilename = result.exportFilename ?? buildThemeFilename(themeSlug, result.version ?? 1);
+			saveStatus = wasUpdating ? `Updated ${exportFilename}` : `Saved as ${exportFilename}`;
+			await loadSavedThemes();
+		} catch (error) {
+			saveStatus = error instanceof Error ? error.message : 'Unable to save color theme.';
+		} finally {
+			isSaving = false;
+		}
+	}
+
+	async function loadSavedThemes() {
+		try {
+			const response = await fetch('/api/themes');
+			const result = (await response.json()) as {
+				themes?: SaveThemeResponse[];
+				message?: string;
+			};
+
+			if (!response.ok) {
+				throw new Error(result.message ?? 'Unable to load saved themes.');
+			}
+
+			savedThemes = result.themes ?? [];
+		} catch (error) {
+			saveStatus = error instanceof Error ? error.message : 'Unable to load saved themes.';
+		}
+	}
+
+	function chooseSavedTheme(id: string) {
+		selectedThemeId = id;
+
+		if (!id) {
+			saveStatus = 'Unsaved';
+			exportFilename = '';
+			return;
+		}
+
+		const selectedTheme = savedThemes.find((theme) => theme.id === id);
+
+		if (!selectedTheme) {
+			return;
+		}
+
+		themeName = selectedTheme.name;
+		palette = selectedTheme.colors;
+		exportFilename = selectedTheme.exportFilename;
+		saveStatus = `Loaded ${selectedTheme.exportFilename}`;
+	}
+
 	const themeGradient = $derived(palette.map((column) => column.hex).join(', '));
-	const cssVariables = $derived.by(() =>
-		`:root {\n${palette
-			.map((column, index) => `  --${themeSlug}-${index + 1}: ${column.hex};`)
-			.join('\n')}\n}`
-	);
 	const themeSlug = $derived(
 		themeName
 			.trim()
@@ -73,10 +204,16 @@
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/^-|-$/g, '') || 'color-theme'
 	);
+	const cssVariables = $derived.by(() =>
+		`:root {\n${palette
+			.map((column, index) => `  --${themeSlug}-${index + 1}: ${column.hex};`)
+			.join('\n')}\n}`
+	);
 	const paletteJson = $derived.by(() =>
 		JSON.stringify(
 			{
 				name: themeName.trim() || 'Untitled Theme',
+				slug: themeSlug,
 				colors: palette.map((column) => ({
 					slot: column.name,
 					hex: column.hex
@@ -108,7 +245,8 @@
 			</p>
 		</div>
 
-		<div class="hero-actions">
+	<div class="hero-actions">
+			<button type="button" class="secondary" onclick={randomizePalette}>Random palette</button>
 			<button type="button" class="secondary" onclick={resetPalette}>Reset palette</button>
 		</div>
 	</section>
@@ -125,13 +263,26 @@
 		</label>
 
 		<div class="theme-meta__details">
+			<label class="theme-meta__card saved-theme-field">
+				<span>Saved themes</span>
+				<select
+					value={selectedThemeId}
+					aria-label="Saved color themes"
+					onchange={(event) => chooseSavedTheme((event.currentTarget as HTMLSelectElement).value)}
+				>
+					<option value="">New color theme</option>
+					{#each savedThemes as savedTheme}
+						<option value={savedTheme.id}>{savedTheme.exportFilename}</option>
+					{/each}
+				</select>
+			</label>
 			<div class="theme-meta__card">
 				<span>Slug</span>
 				<code>{themeSlug}</code>
 			</div>
 			<div class="theme-meta__card">
 				<span>Status</span>
-				<strong>{themeName.trim() || 'Untitled Theme'}</strong>
+				<strong>{saveStatus}</strong>
 			</div>
 		</div>
 	</section>
@@ -160,8 +311,11 @@
 		{#each palette as column}
 			<article class="color-column" style={`--column-color: ${column.hex};`}>
 				<header>
-					<p>{column.name}</p>
-					<h2>{column.hex}</h2>
+					<div>
+						<p>{column.name}</p>
+						<h2>{column.hex}</h2>
+					</div>
+					<button type="button" class="ghost" onclick={() => randomizeColor(column.id)}>Random</button>
 				</header>
 
 				<div class="color-stage">
@@ -211,6 +365,18 @@
 		<div>
 			<p class="eyebrow">Export</p>
 			<h2>Theme hex codes</h2>
+		</div>
+		<div class="export-actions">
+			<button type="button" class="secondary" onclick={saveTheme} disabled={isSaving}>
+				{isSaving ? 'Saving...' : 'Save theme'}
+			</button>
+			<button
+				type="button"
+				class="secondary"
+				onclick={() => downloadPaletteJson(exportFilename || buildThemeFilename(themeSlug))}
+			>
+				Export JSON
+			</button>
 		</div>
 
 		<div class="output-grid">
@@ -332,6 +498,8 @@
 
 	.hero-actions {
 		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
 		align-items: center;
 	}
 
@@ -346,6 +514,11 @@
 	.secondary {
 		background: rgba(255, 255, 255, 0.1);
 		color: #f2f6fb;
+	}
+
+	button:disabled {
+		cursor: wait;
+		opacity: 0.7;
 	}
 
 	.ghost {
@@ -376,7 +549,8 @@
 		color: rgba(242, 246, 251, 0.76);
 	}
 
-	.theme-name-field input {
+	.theme-name-field input,
+	.saved-theme-field select {
 		width: 100%;
 		box-sizing: border-box;
 		border: 1px solid rgba(255, 255, 255, 0.14);
@@ -385,6 +559,11 @@
 		background: rgba(255, 255, 255, 0.06);
 		color: #f2f6fb;
 		font: inherit;
+	}
+
+	.saved-theme-field select {
+		padding: 0.75rem 0.85rem;
+		border-radius: 12px;
 	}
 
 	.theme-meta__details {
@@ -463,6 +642,13 @@
 	}
 
 	.color-column header {
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 0.35rem;
+	}
+
+	.color-column header div {
 		display: grid;
 		gap: 0.35rem;
 	}
@@ -547,11 +733,21 @@
 
 	.output-panel {
 		padding: 1.25rem;
-		display: grid;
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		align-items: start;
 		gap: 1rem;
 	}
 
+	.export-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
 	.output-grid {
+		width: 100%;
 		display: grid;
 		grid-template-columns: repeat(5, minmax(0, 1fr));
 		gap: 0.75rem;

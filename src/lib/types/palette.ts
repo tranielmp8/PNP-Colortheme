@@ -13,5 +13,6 @@ export type PaletteExportColor = {
 
 export type PaletteJsonExport = {
 	name: string;
+	slug: string;
 	colors: PaletteExportColor[];
 };
