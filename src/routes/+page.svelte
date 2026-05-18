@@ -564,6 +564,13 @@
 	.saved-theme-field select {
 		padding: 0.75rem 0.85rem;
 		border-radius: 12px;
+		background-color: #101827;
+		color: #f2f6fb;
+	}
+
+	.saved-theme-field option {
+		background-color: #101827;
+		color: #f2f6fb;
 	}
 
 	.theme-meta__details {
